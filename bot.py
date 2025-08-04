@@ -38,6 +38,7 @@ class DGSCBot:
         self.application.add_handler(CommandHandler("my_requests", self.my_requests_command))
         self.application.add_handler(CommandHandler("pending_requests", self.pending_requests_command))
         self.application.add_handler(CommandHandler("list", self.list_all_items_command))
+        self.application.add_handler(CommandHandler("delete", self.delete_dgsc_command))
         
         # Conversation handler for adding DGSCs
         add_dgsc_handler = ConversationHandler(
@@ -60,8 +61,8 @@ class DGSCBot:
         )
         self.application.add_handler(request_handler)
         
-        # Callback query handlers (for accept/reject buttons)
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback, pattern=r'^(accept|reject)_\d+$'))
+        # Callback query handlers (for accept/reject buttons and delete confirmations)
+        self.application.add_handler(CallbackQueryHandler(self.handle_callback, pattern=r'^(accept|reject|confirm_delete|cancel_delete)_\d+$'))
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -76,6 +77,7 @@ class DGSCBot:
             "• /add_dgsc - Add a new DGSC to the system\n"
             "• /list - View all items in the system\n"
             "• /search - Search for specific DGSCs\n"
+            "• /delete - Delete a DGSC you own\n"
             "• /my_requests - View your pending requests\n"
             "• /pending_requests - View requests waiting for your approval\n"
             "• /help - Show this help message"
@@ -92,6 +94,7 @@ class DGSCBot:
             "• /add_dgsc - Register a new DGSC in the system\n"
             "• /list - View all DGSCs in the system with current owners\n"
             "• /search <name> - Find DGSCs by name or description\n"
+            "• /delete <name> - Delete a DGSC you own from the system\n"
             "• /my_requests - Check status of your requests\n"
             "• /pending_requests - Approve/reject incoming requests\n\n"
             "How it works:\n"
@@ -99,7 +102,8 @@ class DGSCBot:
             "2. Browse all items using /list or search using /search\n"
             "3. Request items from other users\n"
             "4. Accept or reject requests from others\n"
-            "5. All transactions are automatically tracked\n\n"
+            "5. Delete your own items using /delete\n"
+            "6. All transactions are automatically tracked\n\n"
             "Need help? Contact your system administrator."
         )
         
@@ -272,6 +276,60 @@ class DGSCBot:
             )
         
         return ConversationHandler.END
+    
+    async def delete_dgsc_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Delete a DGSC owned by the user"""
+        user_id = update.effective_user.id
+        
+        if not context.args:
+            await update.message.reply_text(
+                "🗑️ Please provide the name of the DGSC to delete.\n"
+                "Usage: /delete <DGSC name>\n"
+                "Example: /delete USB Drive\n\n"
+                "⚠️ Warning: This action cannot be undone!"
+            )
+            return
+        
+        dgsc_name = ' '.join(context.args)
+        
+        # Search for the DGSC by name owned by this user
+        user_dgscs = self.db.get_user_dgscs(user_id)
+        dgsc_to_delete = None
+        
+        for dgsc_id, name, description, created_at in user_dgscs:
+            if name.lower() == dgsc_name.lower():
+                dgsc_to_delete = (dgsc_id, name, description)
+                break
+        
+        if not dgsc_to_delete:
+            await update.message.reply_text(
+                f"❌ DGSC '{dgsc_name}' not found in your inventory.\n"
+                "Use /my_items to see your current DGSCs.\n\n"
+                "Note: You can only delete DGSCs that you own."
+            )
+            return
+        
+        dgsc_id, actual_name, description = dgsc_to_delete
+        
+        # Confirm deletion
+        keyboard = [
+            [
+                InlineKeyboardButton("🗑️ Yes, Delete", callback_data=f"confirm_delete_{dgsc_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_delete_{dgsc_id}")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        confirm_text = (
+            f"⚠️ Are you sure you want to delete '{actual_name}'?\n\n"
+            f"This will:\n"
+            f"• Remove the DGSC from the system permanently\n"
+            f"• Cancel any pending requests for this item\n"
+            f"• Delete all transaction history for this item\n\n"
+            f"This action cannot be undone!"
+        )
+        
+        await update.message.reply_text(confirm_text, reply_markup=reply_markup)
     
     async def my_requests_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show user's pending requests"""
@@ -450,6 +508,37 @@ class DGSCBot:
                 )
             else:
                 await query.edit_message_text("❌ Failed to reject request. It may have already been processed.")
+        
+        elif data.startswith('confirm_delete_'):
+            dgsc_id = int(data.split('_')[2])
+            user_id = update.effective_user.id
+            
+            # Get DGSC info before deletion
+            dgsc_info = self.db.get_dgsc_by_id(dgsc_id)
+            if not dgsc_info:
+                await query.edit_message_text("❌ DGSC no longer exists.")
+                return
+            
+            dgsc_name = dgsc_info[1]
+            
+            # Attempt to delete
+            success = self.db.delete_dgsc(dgsc_id, user_id)
+            
+            if success:
+                await query.edit_message_text(
+                    f"✅ Successfully deleted '{dgsc_name}' from the system.\n"
+                    f"All related requests and transaction history have been removed."
+                )
+            else:
+                await query.edit_message_text(
+                    f"❌ Failed to delete '{dgsc_name}'.\n"
+                    f"You can only delete DGSCs that you own."
+                )
+        
+        elif data.startswith('cancel_delete_'):
+            await query.edit_message_text(
+                "🚫 Deletion cancelled. Your DGSC remains in the system."
+            )
     
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Cancel current conversation"""

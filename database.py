@@ -286,3 +286,38 @@ class Database:
         result = cursor.fetchone()
         conn.close()
         return result
+    
+    def delete_dgsc(self, dgsc_id: int, user_id: int) -> bool:
+        """Delete a DGSC if the user is the owner"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # First check if the user owns this DGSC
+        cursor.execute('''
+            SELECT current_owner_id FROM pendrives WHERE id = ?
+        ''', (dgsc_id,))
+        
+        result = cursor.fetchone()
+        if not result or result[0] != user_id:
+            conn.close()
+            return False
+        
+        # Delete related transactions first (foreign key constraint)
+        cursor.execute('''
+            DELETE FROM transactions WHERE pendrive_id = ?
+        ''', (dgsc_id,))
+        
+        # Delete related requests
+        cursor.execute('''
+            DELETE FROM requests WHERE pendrive_id = ?
+        ''', (dgsc_id,))
+        
+        # Finally delete the DGSC
+        cursor.execute('''
+            DELETE FROM pendrives WHERE id = ?
+        ''', (dgsc_id,))
+        
+        affected_rows = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected_rows > 0
