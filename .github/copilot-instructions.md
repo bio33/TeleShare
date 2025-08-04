@@ -21,7 +21,7 @@ This is a Python-based Telegram bot for tracking shared physical DGSCs among emp
 
 ## Database Schema:
 - `users`: Store Telegram user information
-- `pendrives`: Track all registered DGSCs and current owners
+- `dgscs`: Track all registered DGSCs and current owners
 - `requests`: Handle transfer requests with status tracking
 - `transactions`: Complete audit trail of all ownership changes
 

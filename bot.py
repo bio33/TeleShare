@@ -15,7 +15,7 @@ load_dotenv()
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.WARNING
 )
 logger = logging.getLogger(__name__)
 
@@ -60,8 +60,8 @@ class DGSCBot:
         )
         self.application.add_handler(request_handler)
         
-        # Callback query handlers
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+        # Callback query handlers (for accept/reject buttons)
+        self.application.add_handler(CallbackQueryHandler(self.handle_callback, pattern=r'^(accept|reject)_\d+$'))
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -86,48 +86,52 @@ class DGSCBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = (
-            "🔧 **DGSC Tracker Help**\n\n"
-            "**Main Commands:**\n"
-            "• `/my_items` - See all DGSCs you currently own\n"
-            "• `/add_dgsc` - Register a new DGSC in the system\n"
-            "• `/list` - View all DGSCs in the system with current owners\n"
-            "• `/search <name>` - Find DGSCs by name or description\n"
-            "• `/my_requests` - Check status of your requests\n"
-            "• `/pending_requests` - Approve/reject incoming requests\n\n"
-            "**How it works:**\n"
-            "1. Add DGSCs to the system using `/add_dgsc`\n"
-            "2. Browse all items using `/list` or search using `/search`\n"
+            "🔧 DGSC Tracker Help\n\n"
+            "Main Commands:\n"
+            "• /my_items - See all DGSCs you currently own\n"
+            "• /add_dgsc - Register a new DGSC in the system\n"
+            "• /list - View all DGSCs in the system with current owners\n"
+            "• /search <name> - Find DGSCs by name or description\n"
+            "• /my_requests - Check status of your requests\n"
+            "• /pending_requests - Approve/reject incoming requests\n\n"
+            "How it works:\n"
+            "1. Add DGSCs to the system using /add_dgsc\n"
+            "2. Browse all items using /list or search using /search\n"
             "3. Request items from other users\n"
             "4. Accept or reject requests from others\n"
             "5. All transactions are automatically tracked\n\n"
             "Need help? Contact your system administrator."
         )
         
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        await update.message.reply_text(help_text)
     
     async def my_items_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show items currently owned by the user"""
         user_id = update.effective_user.id
-        pendrives = self.db.get_user_pendrives(user_id)
+        dgscs = self.db.get_user_dgscs(user_id)
         
-        if not pendrives:
+        if not dgscs:
             await update.message.reply_text(
                 "📦 You don't currently possess any DGSCs.\n"
                 "Use /search to find available items or /add_dgsc to register new ones."
             )
             return
         
-        text = "📦 **Your Current Items:**\n\n"
-        for pendrive_id, name, description, created_at in pendrives:
-            text += f"• **{name}**\n"
+        text = "📦 Your Current Items:\n\n"
+        for dgsc_id, name, description, created_at in dgscs:
+            text += f"• {name}\n"
             if description:
-                text += f"  _{description}_\n"
+                text += f"  {description}\n"
             text += f"  Added: {created_at[:10]}\n\n"
         
-        await update.message.reply_text(text, parse_mode='Markdown')
+        await update.message.reply_text(text)
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Search for DGSCs"""
+        # Update user info to ensure current data
+        user = update.effective_user
+        self.db.add_user(user.id, user.username, user.first_name, user.last_name)
+        
         if not context.args:
             await update.message.reply_text(
                 "🔍 Please provide a search term.\n"
@@ -137,7 +141,7 @@ class DGSCBot:
             return
         
         search_term = ' '.join(context.args)
-        results = self.db.search_pendrive(search_term)
+        results = self.db.search_dgsc(search_term)
         
         if not results:
             await update.message.reply_text(
@@ -146,14 +150,23 @@ class DGSCBot:
             )
             return
         
-        text = f"🔍 **Search Results for '{search_term}':**\n\n"
+        text = f"🔍 Search Results for '{search_term}':\n\n"
         keyboard = []
         
-        for pendrive_id, name, description, owner_id, username, first_name, last_name in results:
-            owner_display = first_name or username or f"User {owner_id}"
-            text += f"• **{name}**\n"
+        for dgsc_id, name, description, owner_id, username, first_name, last_name in results:
+            # Create a better display name for the owner
+            if first_name and first_name.strip():
+                owner_display = first_name.strip()
+            elif username and username.strip():
+                owner_display = username.strip()
+            elif last_name and last_name.strip():
+                owner_display = last_name.strip()
+            else:
+                owner_display = f"User {owner_id}"
+                
+            text += f"• {name}\n"
             if description:
-                text += f"  _{description}_\n"
+                text += f"  {description}\n"
             text += f"  📍 Currently with: {owner_display}\n\n"
             
             # Add request button if not owned by current user
@@ -161,17 +174,21 @@ class DGSCBot:
                 keyboard.append([
                     InlineKeyboardButton(
                         f"🙋‍♂️ Request {name}", 
-                        callback_data=f"request_{pendrive_id}"
+                        callback_data=f"request_{dgsc_id}"
                     )
                 ])
         
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+        await update.message.reply_text(text, reply_markup=reply_markup)
     
     async def list_all_items_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """List all items in the system with their current owners"""
+        # Update user info to ensure current data
+        user = update.effective_user
+        self.db.add_user(user.id, user.username, user.first_name, user.last_name)
+        
         user_id = update.effective_user.id
-        all_items = self.db.get_all_pendrives()
+        all_items = self.db.get_all_dgscs()
         
         if not all_items:
             await update.message.reply_text(
@@ -180,16 +197,24 @@ class DGSCBot:
             )
             return
         
-        text = "📦 **All DGSCs in the System:**\n\n"
+        text = "📦 All DGSCs in the System:\n\n"
         keyboard = []
         
-        for pendrive_id, name, description, owner_id, username, first_name, last_name, created_at in all_items:
-            owner_display = first_name or username or f"User {owner_id}"
+        for dgsc_id, name, description, owner_id, username, first_name, last_name, created_at in all_items:
+            # Create a better display name for the owner
+            if first_name and first_name.strip():
+                owner_display = first_name.strip()
+            elif username and username.strip():
+                owner_display = username.strip()
+            elif last_name and last_name.strip():
+                owner_display = last_name.strip()
+            else:
+                owner_display = f"User {owner_id}"
             
             # Add item info
-            text += f"• **{name}**\n"
+            text += f"• {name}\n"
             if description:
-                text += f"  _{description}_\n"
+                text += f"  {description}\n"
             text += f"  📍 Currently with: {owner_display}\n"
             text += f"  📅 Added: {created_at[:10]}\n\n"
             
@@ -198,16 +223,16 @@ class DGSCBot:
                 keyboard.append([
                     InlineKeyboardButton(
                         f"🙋‍♂️ Request {name}", 
-                        callback_data=f"request_{pendrive_id}"
+                        callback_data=f"request_{dgsc_id}"
                     )
                 ])
         
         # Add note if user owns all items
         if not keyboard:
-            text += "_You currently own all DGSCs in the system._"
+            text += "You currently own all DGSCs in the system."
         
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+        await update.message.reply_text(text, reply_markup=reply_markup)
     
     async def add_dgsc_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start the add DGSC conversation"""
@@ -232,7 +257,7 @@ class DGSCBot:
         description = update.message.text if update.message.text.lower() != 'skip' else ''
         user_id = update.effective_user.id
         
-        success = self.db.add_pendrive(name, description, user_id)
+        success = self.db.add_dgsc(name, description, user_id)
         
         if success:
             await update.message.reply_text(
@@ -260,17 +285,24 @@ class DGSCBot:
             )
             return
         
-        text = "📋 **Your Requests:**\n\n"
-        for req_id, pendrive_id, pendrive_name, owner_id, owner_username, owner_first_name, status, created_at in requests:
-            owner_display = owner_first_name or owner_username or f"User {owner_id}"
+        text = "📋 Your Requests:\n\n"
+        for req_id, dgsc_id, dgsc_name, owner_id, owner_username, owner_first_name, status, created_at in requests:
+            # Create a better display name for the owner
+            if owner_first_name and owner_first_name.strip():
+                owner_display = owner_first_name.strip()
+            elif owner_username and owner_username.strip():
+                owner_display = owner_username.strip()
+            else:
+                owner_display = f"User {owner_id}"
+                
             status_emoji = {"pending": "⏳", "accepted": "✅", "rejected": "❌"}.get(status, "❓")
             
-            text += f"{status_emoji} **{pendrive_name}**\n"
+            text += f"{status_emoji} {dgsc_name}\n"
             text += f"  From: {owner_display}\n"
             text += f"  Status: {status.title()}\n"
             text += f"  Requested: {created_at[:10]}\n\n"
         
-        await update.message.reply_text(text, parse_mode='Markdown')
+        await update.message.reply_text(text)
     
     async def pending_requests_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show pending requests for user's items"""
@@ -284,15 +316,21 @@ class DGSCBot:
             )
             return
         
-        text = "📬 **Pending Requests for Your Items:**\n\n"
+        text = "📬 Pending Requests for Your Items:\n\n"
         keyboard = []
         
-        for req_id, pendrive_id, pendrive_name, requester_id, requester_username, requester_first_name, message, created_at in requests:
-            requester_display = requester_first_name or requester_username or f"User {requester_id}"
+        for req_id, dgsc_id, dgsc_name, requester_id, requester_username, requester_first_name, message, created_at in requests:
+            # Create a better display name for the requester
+            if requester_first_name and requester_first_name.strip():
+                requester_display = requester_first_name.strip()
+            elif requester_username and requester_username.strip():
+                requester_display = requester_username.strip()
+            else:
+                requester_display = f"User {requester_id}"
             
-            text += f"🙋‍♂️ **{pendrive_name}** requested by {requester_display}\n"
+            text += f"🙋‍♂️ {dgsc_name} requested by {requester_display}\n"
             if message:
-                text += f"  Message: _{message}_\n"
+                text += f"  Message: {message}\n"
             text += f"  Requested: {created_at[:10]}\n\n"
             
             keyboard.append([
@@ -301,29 +339,42 @@ class DGSCBot:
             ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+        await update.message.reply_text(text, reply_markup=reply_markup)
     
     async def request_item_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start requesting an item"""
         query = update.callback_query
         await query.answer()
         
-        pendrive_id = int(query.data.split('_')[1])
-        context.user_data['requesting_pendrive_id'] = pendrive_id
+        dgsc_id = int(query.data.split('_')[1])
+        context.user_data['requesting_dgsc_id'] = dgsc_id
         
-        pendrive_info = self.db.get_pendrive_by_id(pendrive_id)
-        if not pendrive_info:
+        dgsc_info = self.db.get_dgsc_by_id(dgsc_id)
+        if not dgsc_info:
             await query.edit_message_text("❌ This DGSC no longer exists.")
             return ConversationHandler.END
         
-        pendrive_name = pendrive_info[1]
-        owner_name = pendrive_info[5] or pendrive_info[4] or f"User {pendrive_info[3]}"
+        dgsc_name = dgsc_info[1]
+        # dgsc_info: (id, name, description, current_owner_id, username, first_name, last_name)
+        owner_id = dgsc_info[3]
+        username = dgsc_info[4]
+        first_name = dgsc_info[5]
+        last_name = dgsc_info[6] if len(dgsc_info) > 6 else None
+        
+        # Create a better display name for the owner
+        if first_name and first_name.strip():
+            owner_name = first_name.strip()
+        elif username and username.strip():
+            owner_name = username.strip()
+        elif last_name and last_name.strip():
+            owner_name = last_name.strip()
+        else:
+            owner_name = f"User {owner_id}"
         
         await query.edit_message_text(
-            f"📝 You're requesting **{pendrive_name}** from {owner_name}.\n\n"
+            f"📝 You're requesting {dgsc_name} from {owner_name}.\n\n"
             f"Would you like to include a message with your request?\n"
-            f"(Type your message or 'skip' to send without a message)",
-            parse_mode='Markdown'
+            f"(Type your message or 'skip' to send without a message)"
         )
         
         return REQUESTING_MESSAGE
@@ -331,40 +382,39 @@ class DGSCBot:
     async def request_item_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle request message and create the request"""
         message = update.message.text if update.message.text.lower() != 'skip' else ''
-        pendrive_id = context.user_data['requesting_pendrive_id']
+        dgsc_id = context.user_data['requesting_dgsc_id']
         requester_id = update.effective_user.id
         
         # Get DGSC info to find current owner
-        pendrive_info = self.db.get_pendrive_by_id(pendrive_id)
-        if not pendrive_info:
+        dgsc_info = self.db.get_dgsc_by_id(dgsc_id)
+        if not dgsc_info:
             await update.message.reply_text("❌ This DGSC no longer exists.")
             return ConversationHandler.END
         
-        current_owner_id = pendrive_info[3]
-        pendrive_name = pendrive_info[1]
+        current_owner_id = dgsc_info[3]
+        dgsc_name = dgsc_info[1]
         
         if current_owner_id == requester_id:
             await update.message.reply_text("❌ You already own this DGSC!")
             return ConversationHandler.END
         
-        request_id = self.db.create_request(pendrive_id, requester_id, current_owner_id, message)
+        request_id = self.db.create_request(dgsc_id, requester_id, current_owner_id, message)
         
         await update.message.reply_text(
-            f"✅ Your request for **{pendrive_name}** has been sent!\n"
+            f"✅ Your request for {dgsc_name} has been sent!\n"
             f"The current owner will be notified and can accept or reject your request.\n\n"
-            f"Check the status anytime with /my_requests",
-            parse_mode='Markdown'
+            f"Check the status anytime with /my_requests"
         )
         
         # Notify the owner (if they have a chat with the bot)
         try:
             owner_name = update.effective_user.first_name or update.effective_user.username
             notification_text = (
-                f"🔔 **New Request!**\n\n"
-                f"{owner_name} has requested your **{pendrive_name}**\n"
+                f"🔔 New Request!\n\n"
+                f"{owner_name} has requested your {dgsc_name}\n"
                 f"Use /pending_requests to respond."
             )
-            await context.bot.send_message(current_owner_id, notification_text, parse_mode='Markdown')
+            await context.bot.send_message(current_owner_id, notification_text)
         except Exception as e:
             logger.info(f"Could not notify user {current_owner_id}: {e}")
         

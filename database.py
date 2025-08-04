@@ -24,7 +24,7 @@ class Database:
             )
         ''')
         
-        # Pendrives table
+        # DGSCs table (stored as 'pendrives' for compatibility)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pendrives (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,8 +84,8 @@ class Database:
         conn.commit()
         conn.close()
     
-    def add_pendrive(self, name: str, description: str, owner_id: int) -> bool:
-        """Add a new pendrive to the system"""
+    def add_dgsc(self, name: str, description: str, owner_id: int) -> bool:
+        """Add a new DGSC to the system"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -95,13 +95,13 @@ class Database:
                 VALUES (?, ?, ?)
             ''', (name, description, owner_id))
             
-            pendrive_id = cursor.lastrowid
+            dgsc_id = cursor.lastrowid
             
             # Add initial transaction
             cursor.execute('''
                 INSERT INTO transactions (pendrive_id, to_user_id, transaction_type)
                 VALUES (?, ?, 'initial_assignment')
-            ''', (pendrive_id, owner_id))
+            ''', (dgsc_id, owner_id))
             
             conn.commit()
             conn.close()
@@ -110,8 +110,8 @@ class Database:
             conn.close()
             return False
     
-    def get_user_pendrives(self, user_id: int) -> List[Tuple]:
-        """Get all pendrives currently owned by a user"""
+    def get_user_dgscs(self, user_id: int) -> List[Tuple]:
+        """Get all DGSCs currently owned by a user"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -125,8 +125,8 @@ class Database:
         conn.close()
         return result
     
-    def get_all_pendrives(self) -> List[Tuple]:
-        """Get all pendrives in the system with their current owners"""
+    def get_all_dgscs(self) -> List[Tuple]:
+        """Get all DGSCs in the system with their current owners"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -142,8 +142,8 @@ class Database:
         conn.close()
         return result
     
-    def search_pendrive(self, search_term: str) -> List[Tuple]:
-        """Search for pendrives by name or description"""
+    def search_dgsc(self, search_term: str) -> List[Tuple]:
+        """Search for DGSCs by name or description"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -159,15 +159,15 @@ class Database:
         conn.close()
         return result
     
-    def create_request(self, pendrive_id: int, requester_id: int, current_owner_id: int, message: str = '') -> int:
-        """Create a new request for a pendrive"""
+    def create_request(self, dgsc_id: int, requester_id: int, current_owner_id: int, message: str = '') -> int:
+        """Create a new request for a DGSC"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         cursor.execute('''
             INSERT INTO requests (pendrive_id, requester_id, current_owner_id, message)
             VALUES (?, ?, ?, ?)
-        ''', (pendrive_id, requester_id, current_owner_id, message))
+        ''', (dgsc_id, requester_id, current_owner_id, message))
         
         request_id = cursor.lastrowid
         conn.commit()
@@ -228,14 +228,14 @@ class Database:
             conn.close()
             return False
         
-        pendrive_id, requester_id, current_owner_id = result
+        dgsc_id, requester_id, current_owner_id = result
         
-        # Update pendrive ownership
+        # Update DGSC ownership
         cursor.execute('''
             UPDATE pendrives
             SET current_owner_id = ?
             WHERE id = ?
-        ''', (requester_id, pendrive_id))
+        ''', (requester_id, dgsc_id))
         
         # Update request status
         cursor.execute('''
@@ -248,7 +248,7 @@ class Database:
         cursor.execute('''
             INSERT INTO transactions (pendrive_id, from_user_id, to_user_id, transaction_type)
             VALUES (?, ?, ?, 'transfer')
-        ''', (pendrive_id, current_owner_id, requester_id))
+        ''', (dgsc_id, current_owner_id, requester_id))
         
         conn.commit()
         conn.close()
@@ -270,8 +270,8 @@ class Database:
         conn.close()
         return affected_rows > 0
     
-    def get_pendrive_by_id(self, pendrive_id: int) -> Optional[Tuple]:
-        """Get pendrive details by ID"""
+    def get_dgsc_by_id(self, dgsc_id: int) -> Optional[Tuple]:
+        """Get DGSC details by ID"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -281,7 +281,7 @@ class Database:
             FROM pendrives p
             LEFT JOIN users u ON p.current_owner_id = u.user_id
             WHERE p.id = ?
-        ''', (pendrive_id,))
+        ''', (dgsc_id,))
         
         result = cursor.fetchone()
         conn.close()

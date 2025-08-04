@@ -1,4 +1,17 @@
-# DGSC Tracker ### 🔧 Bot Commands
+CDD3YHRAYHN4FNBK77MTD57V774Q3W# DGSC Tracker- ### 🔧 Bot Commands
+- `/start` - Initialize your account and see welcome message
+- `/help` - Display help information and available commands
+- `/my_items` - View all DGSCs you currently possess
+- `/add_dgsc` - Register a new DGSC in the system
+- `/list` - View all DGSCs in the system with current owners
+- `/search <n>` - Search for DGSCs by name or description
+- `/my_requests` - Check status of your pending requests
+- `/pending_requests` - View and respond to incoming requestsms` - View all DGSCs you currently possess
+- `### Requesting Items
+1. Use `/search <n>` to find DGSCs
+2. Click "Request" button for items you need
+3. Optionally add a message explaining why you need it_dgsc` - Register a new DGSC in the system
+- `/search <n>` - Search for DGSCs by name or description# 🔧 Bot Commands
 - `/start` - Initialize your account and see ### Requesting Items
 1. Use `/list` to see all DGSCs or `/search <name>` to find specific ones
 2. Click "Request" button for items you need
@@ -16,7 +29,7 @@
 The bot uses SQLite with the following tables:
 
 - **users**: Store Telegram user information
-- **pendrives**: Track all registered DGSCs and current owners  
+- **dgscs**: Track all registered DGSCs and current owners  
 - **requests**: Handle transfer requests with status tracking
 - **transactions**: Complete audit trail of all ownership changes/help` - Display help information and available commands
 - `/my_items` - View all DGSCs you currently possess
@@ -114,7 +127,7 @@ A Telegram bot for tracking and sharing physical DGSCs (Digital Storage Devices)
 The bot uses SQLite with the following tables:
 
 - **users**: Store Telegram user information
-- **pendrives**: Track all registered pendrives and current owners  
+- **dgscs**: Track all registered DGSCs and current owners  
 - **requests**: Handle transfer requests with status tracking
 - **transactions**: Complete audit trail of all ownership changes
 
